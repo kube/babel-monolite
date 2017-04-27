@@ -1,7 +1,7 @@
 {
   "name": "babel-plugin-monolite",
-  "version": "0.0.1",
-  "main": "index.js",
+  "version": "0.0.2",
+  "main": "lib/index.js",
   "author": "Chris Feijoo",
   "license": "MIT",
   "scripts": {
