@@ -11,6 +11,10 @@
 import { transform } from 'babel-core'
 import monolitePlugin from '..'
 
+const BABEL_OPTIONS = {
+  plugins: [monolitePlugin]
+}
+
 it(`can take identifier accessors`, () => {
   const source = `
 import { set } from 'monolite';
@@ -36,9 +40,7 @@ set(state, _ => _['a'].b['c'], 42);`
 import { set } from 'monolite';
 set(state, ['a', 'b', 'c'], 42);`
 
-  const result = transform(source, {
-    plugins: [monolitePlugin]
-  })
+  const result = transform(source, BABEL_OPTIONS)
 
   expect(result.code).toBe(expected)
 })
@@ -55,6 +57,20 @@ set(state, ['a', 'b', c], 42);`
   const result = transform(source, {
     plugins: [monolitePlugin]
   })
+
+  expect(result.code).toBe(expected)
+})
+
+it(`can transform fluent-style set`, () => {
+  const source = `
+import { set } from 'monolite';
+set(state).set(_ => _.a.b.c, 42).set(_ => _.a.d.e, x => x + 1).end();`
+
+  const expected = `
+import { set } from 'monolite';
+set(state).set(['a', 'b', 'c'], 42).set(['a', 'd', 'e'], x => x + 1).end();`
+
+  const result = transform(source, BABEL_OPTIONS)
 
   expect(result.code).toBe(expected)
 })
