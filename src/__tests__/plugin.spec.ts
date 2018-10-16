@@ -74,3 +74,21 @@ set(state).set(['a', 'b', 'c'], 42).set(['a', 'd', 'e'], x => x + 1).end();`
 
   expect(result.code).toBe(expected)
 })
+
+it(`should throw if accessor does not return member expression`, () => {
+  const classicalSource = `
+import { set } from 'monolite';
+set(state, _ => something.b.c, 42)`
+
+  expect(() => transform(classicalSource, BABEL_OPTIONS)).toThrow(
+    'Monolite: Accessor function should return a subproperty of root'
+  )
+
+  const fluentSource = `
+import { set } from 'monolite';
+set(state).set(_ => something.b.c, 42)`
+
+  expect(() => transform(fluentSource, BABEL_OPTIONS)).toThrow(
+    'Monolite: Accessor function should return a subproperty of root'
+  )
+})

@@ -10,7 +10,14 @@
 
 import { Types, BabelPlugin } from './types'
 import { NodePath } from 'babel-traverse'
-import { Expression, CallExpression, MemberExpression } from 'babel-types'
+import {
+  Expression,
+  CallExpression,
+  MemberExpression,
+  ArrowFunctionExpression,
+  Identifier
+} from 'babel-types'
+import { types } from 'babel-core'
 
 const getAccessorChainFromFunction = (types: Types, expr: MemberExpression) => {
   const chain: Expression[] =
@@ -56,7 +63,10 @@ const isImportedFromMonolite = (path: NodePath<CallExpression>): boolean => {
   return true
 }
 
-const transformClassicalSet = (types: Types, path: NodePath<CallExpression>) => {
+const transformClassicalSet = (
+  types: Types,
+  path: NodePath<CallExpression>
+) => {
   const [rootObject, accessorFunction, valueTransformer] = path.node.arguments
 
   if (
@@ -68,6 +78,10 @@ const transformClassicalSet = (types: Types, path: NodePath<CallExpression>) => 
     return
   }
 
+  checkAccessorFunction(path.get('arguments.1') as NodePath<
+    ArrowFunctionExpression
+  >)
+
   path.replaceWith(
     types.callExpression(path.node.callee, [
       rootObject,
@@ -77,6 +91,45 @@ const transformClassicalSet = (types: Types, path: NodePath<CallExpression>) => 
       valueTransformer
     ])
   )
+}
+
+const checkAccessorFunction = (
+  accessorFunctionPath: NodePath<ArrowFunctionExpression>
+) => {
+  const params = accessorFunctionPath.node.params
+  const rootParam: Identifier = params[0] as any
+
+  if (params.length !== 1) {
+    throw accessorFunctionPath.buildCodeFrameError(
+      'Monolite: Accessor should take exactly one root argument.'
+    )
+  }
+
+  if (rootParam.type !== 'Identifier') {
+    throw accessorFunctionPath.buildCodeFrameError(
+      'Monolite: Invalid accessor root argument.'
+    )
+  }
+
+  const rootName = rootParam.name
+  let currentBodyPath = accessorFunctionPath.get('body')
+
+  while (currentBodyPath) {
+    if (types.isMemberExpression(currentBodyPath.node)) {
+      currentBodyPath = currentBodyPath.get('object')
+    } else if (types.isIdentifier(currentBodyPath.node)) {
+      if (currentBodyPath.node.name !== rootName) {
+        throw currentBodyPath.buildCodeFrameError(
+          'Monolite: Accessor function should return a subproperty of root'
+        )
+      }
+      break
+    } else {
+      throw currentBodyPath.buildCodeFrameError(
+        'Monolite: Accessor function should return a subproperty of root'
+      )
+    }
+  }
 }
 
 const transformFluentSetRecursively = (
@@ -101,6 +154,10 @@ const transformFluentSetRecursively = (
         accessorFunction.type === 'ArrowFunctionExpression' &&
         accessorFunction.body.type === 'MemberExpression'
       ) {
+        checkAccessorFunction(callExprPath.get('arguments.0') as NodePath<
+          ArrowFunctionExpression
+        >)
+
         callExprPath.replaceWith(
           types.callExpression(callExprPath.node.callee, [
             types.arrayExpression(
@@ -124,12 +181,9 @@ const monolitePlugin: BabelPlugin = ({ types }) => ({
         return
       }
 
-      const [, accessorFunction, valueTransformer] = path.node.arguments
+      const [, accessorFunction] = path.node.arguments
 
-      if (
-        typeof accessorFunction === 'undefined' ||
-        typeof valueTransformer === 'undefined'
-      ) {
+      if (typeof accessorFunction === 'undefined') {
         // If no accessorFunction was passed, set is used in fluent style:
         // e.g. set(state).set(_ => _.prop, value)
         transformFluentSetRecursively(types, path)
