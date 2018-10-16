@@ -56,6 +56,67 @@ const isImportedFromMonolite = (path: NodePath<CallExpression>): boolean => {
   return true
 }
 
+const transformClassicalSet = (types: Types, path: NodePath<CallExpression>) => {
+  const [rootObject, accessorFunction, valueTransformer] = path.node.arguments
+
+  if (
+    accessorFunction.type !== 'ArrowFunctionExpression' ||
+    accessorFunction.params.length !== 1 ||
+    accessorFunction.type !== 'ArrowFunctionExpression' ||
+    accessorFunction.body.type !== 'MemberExpression'
+  ) {
+    return
+  }
+
+  path.replaceWith(
+    types.callExpression(path.node.callee, [
+      rootObject,
+      types.arrayExpression(
+        getAccessorChainFromFunction(types, accessorFunction.body)
+      ),
+      valueTransformer
+    ])
+  )
+}
+
+const transformFluentSetRecursively = (
+  types: Types,
+  path: NodePath<CallExpression>
+) => {
+  if (path.parentPath.type === 'MemberExpression') {
+    const memberExprPath = path.parentPath as NodePath<MemberExpression>
+    const callExprPath = memberExprPath.parentPath as NodePath<CallExpression>
+
+    if (
+      memberExprPath.node.property &&
+      memberExprPath.node.property.type === 'Identifier' &&
+      memberExprPath.node.property.name === 'set' &&
+      callExprPath &&
+      callExprPath.type === 'CallExpression'
+    ) {
+      const [accessorFunction, valueTransformer] = callExprPath.node.arguments
+
+      if (
+        accessorFunction &&
+        accessorFunction.type === 'ArrowFunctionExpression' &&
+        accessorFunction.body.type === 'MemberExpression'
+      ) {
+        callExprPath.replaceWith(
+          types.callExpression(callExprPath.node.callee, [
+            types.arrayExpression(
+              getAccessorChainFromFunction(types, accessorFunction.body)
+            ),
+            valueTransformer
+          ])
+        )
+      }
+
+      // Replace methods recursively in parents
+      transformFluentSetRecursively(types, callExprPath)
+    }
+  }
+}
+
 const monolitePlugin: BabelPlugin = ({ types }) => ({
   visitor: {
     CallExpression(path) {
@@ -69,27 +130,14 @@ const monolitePlugin: BabelPlugin = ({ types }) => ({
         typeof accessorFunction === 'undefined' ||
         typeof valueTransformer === 'undefined'
       ) {
-        return
+        // If no accessorFunction was passed, set is used in fluent style:
+        // e.g. set(state).set(_ => _.prop, value)
+        transformFluentSetRecursively(types, path)
+      } else {
+        // Else classical three arguments:
+        // e.g. set(state, _ => _.prop, value)
+        transformClassicalSet(types, path)
       }
-
-      if (
-        accessorFunction.type !== 'ArrowFunctionExpression' ||
-        accessorFunction.params.length !== 1 ||
-        accessorFunction.type !== 'ArrowFunctionExpression' ||
-        accessorFunction.body.type !== 'MemberExpression'
-      ) {
-        return
-      }
-
-      path.replaceWith(
-        types.callExpression(path.node.callee, [
-          path.node.arguments[0],
-          types.arrayExpression(
-            getAccessorChainFromFunction(types, accessorFunction.body)
-          ),
-          valueTransformer
-        ])
-      )
     }
   }
 })
